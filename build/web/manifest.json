@@ -1,10 +1,10 @@
 {
-  "name": "Budget",
+  "name": "Monthly Budget",
   "short_name": "Budget",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#1E1E1E",
-  "theme_color": "#181818",
+  "background_color": "#F4F7FA",
+  "theme_color": "#FF654E",
   "description": "Personal monthly budget tracker",
   "orientation": "portrait-primary",
   "prefer_related_applications": false
