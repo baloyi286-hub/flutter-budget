@@ -1,11 +1,20 @@
 {
   "name": "Monthly Budget",
   "short_name": "Budget",
-  "start_url": ".",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#F4F7FA",
   "theme_color": "#FF654E",
   "description": "Personal monthly budget tracker",
-  "orientation": "portrait-primary",
-  "prefer_related_applications": false
+  "orientation": "any",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "icons/budget-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }
