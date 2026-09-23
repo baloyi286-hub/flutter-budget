@@ -1,7 +1,7 @@
 name: flutter_budget
 description: Personal monthly budget PWA.
 publish_to: "none"
-version: 1.0.0+1
+version: 1.1.0+2
 environment:
   sdk: ">=3.4.0 <4.0.0"
 dependencies:
@@ -9,6 +9,7 @@ dependencies:
     sdk: flutter
   shared_preferences: ^2.5.3
   intl: ^0.20.2
+  supabase_flutter: ^2.9.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
