@@ -35,7 +35,7 @@ class BudgetService extends ChangeNotifier {
 
   Future<void> initialize() async{
     _cycleMonth=_cycleFor(DateTime.now());final current=_key(_cycleMonth),stored=await _repository.loadCycleKey();
-    _items=await _repository.loadItems()??List.of(_seed);_history=await _repository.loadHistory();
+    _items=await _repository.loadItems()??<BudgetItem>[];_history=await _repository.loadHistory();
     if(stored!=null&&stored!=current){await syncNow();await _archive(stored,_items);final now=DateTime.now().toUtc();_items=_items.where((e)=>!e.deleted).map((e)=>e.copyWith(paid:false,updatedAt:now)).toList();}
     await _saveLocal();await syncNow();
     _syncTimer=Timer.periodic(const Duration(seconds:20),(_)=>syncNow());
