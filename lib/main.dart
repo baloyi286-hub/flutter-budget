@@ -20,10 +20,12 @@ class _BudgetAppState extends State<BudgetApp>{
   BudgetService? service;
   @override void initState(){super.initState();_load();}
   Future<void> _load() async{
-    if(Supabase.instance.client.auth.currentUser==null){setState(()=>service=null);return;}
+    final user=Supabase.instance.client.auth.currentUser;
+    if(user==null){service?.dispose();if(mounted)setState(()=>service=null);return;}
     final prefs=await SharedPreferences.getInstance();
-    final s=BudgetService(LocalBudgetRepository(prefs),cloud:CloudBudgetStore(Supabase.instance.client));
-    await s.initialize();if(mounted)setState(()=>service=s);
+    final s=BudgetService(LocalBudgetRepository(prefs,user.id),cloud:CloudBudgetStore(Supabase.instance.client));
+    await s.initialize();
+    if(mounted){service?.dispose();setState(()=>service=s);}
   }
   @override Widget build(BuildContext context)=>MaterialApp(
     debugShowCheckedModeBanner:false,title:'Budget',
