@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/budget_item.dart';
 import '../domain/budget_service.dart';
 
@@ -10,8 +11,9 @@ const _deepBlue = Color(0xFF145FA8);
 const _orange = Color(0xFFFF654E);
 
 class BudgetPage extends StatefulWidget {
-  const BudgetPage({super.key, required this.service});
+  const BudgetPage({super.key, required this.service, required this.onSignedOut});
   final BudgetService service;
+  final VoidCallback onSignedOut;
   @override State<BudgetPage> createState() => _BudgetPageState();
 }
 
@@ -26,7 +28,16 @@ class _BudgetPageState extends State<BudgetPage> {
     return Scaffold(
       appBar:AppBar(
         title:const Text('MONTHLY BUDGET',style:TextStyle(fontWeight:FontWeight.w700,letterSpacing:2)),
-        actions:[IconButton(tooltip:'History',onPressed:_showHistory,icon:const Icon(Icons.history)),const SizedBox(width:6)],
+        actions:[
+          IconButton(tooltip:'History',onPressed:_showHistory,icon:const Icon(Icons.history)),
+          PopupMenuButton<String>(
+            tooltip:'Account',
+            icon:const Icon(Icons.account_circle_outlined),
+            onSelected:(value){if(value=='logout')_signOut();},
+            itemBuilder:(context)=>const [PopupMenuItem(value:'logout',child:Row(children:[Icon(Icons.logout),SizedBox(width:10),Text('Sign out')]))],
+          ),
+          const SizedBox(width:6),
+        ],
       ),
       floatingActionButton:FloatingActionButton(
         backgroundColor:_orange,foregroundColor:Colors.white,
@@ -45,6 +56,18 @@ class _BudgetPageState extends State<BudgetPage> {
         ]),
       )),
     );
+  }
+
+  Future<void> _signOut() async{
+    final confirmed=await showDialog<bool>(context:context,builder:(context)=>AlertDialog(
+      title:const Text('Sign out?'),
+      content:const Text('Your budget is saved to your account. You can sign in again on this or another device.'),
+      actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Sign out'))],
+    ));
+    if(confirmed!=true)return;
+    await widget.service.syncNow();
+    await Supabase.instance.client.auth.signOut();
+    widget.onSignedOut();
   }
 
   Future<void> _addItem() async{
