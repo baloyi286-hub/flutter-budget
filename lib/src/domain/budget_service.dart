@@ -10,8 +10,8 @@ class BudgetService extends ChangeNotifier {
   final BudgetRepository _repository; final CloudBudgetStore? cloud;
   List<BudgetItem> _items=[];List<String> _history=[];late DateTime _cycleMonth;
   Timer? _syncTimer; bool _syncing=false; bool _online=true;
-  List<BudgetItem> get dueItems=>_items.where((e)=>!e.deleted&&!e.paid).toList();
-  List<BudgetItem> get paidItems=>_items.where((e)=>!e.deleted&&e.paid).toList();
+  List<BudgetItem> get dueItems=>_sorted(_items.where((e)=>!e.deleted&&!e.paid));
+  List<BudgetItem> get paidItems=>_sorted(_items.where((e)=>!e.deleted&&e.paid));\n  List<BudgetItem> _sorted(Iterable<BudgetItem> items){final list=items.toList();list.sort((a,b)=>b.amount.compareTo(a.amount));return list;}\n  List<BudgetItem> itemsFor(BudgetCategory category,{required bool paid})=>_sorted(_items.where((e)=>!e.deleted&&e.paid==paid&&e.category==category));
   List<String> get history=>List.unmodifiable(_history);
   String get monthTitle=>DateFormat('MMMM yyyy').format(_cycleMonth);
   double get dueTotal=>dueItems.fold(0,(s,e)=>s+e.amount);
@@ -70,7 +70,7 @@ class BudgetService extends ChangeNotifier {
   }
 
   Future<void> togglePaid(BudgetItem item,bool paid) async{final now=DateTime.now().toUtc();_items=_items.map((e)=>e.id==item.id?e.copyWith(paid:paid,updatedAt:now):e).toList();await _saveLocal();notifyListeners();unawaited(syncNow());}
-  Future<void> addItem(String name,double amount,String note) async{_items.add(BudgetItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name,amount:amount,note:note,updatedAt:DateTime.now().toUtc()));await _saveLocal();notifyListeners();unawaited(syncNow());}
+  Future<void> addItem(String name,double amount,String note,BudgetCategory category,int? monthDay) async{_items.add(BudgetItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name,amount:amount,note:note,category:category,monthDay:monthDay,updatedAt:DateTime.now().toUtc()));await _saveLocal();notifyListeners();unawaited(syncNow());}\n  Future<void> editItem(BudgetItem item,String name,double amount,String note,BudgetCategory category,int? monthDay) async{final now=DateTime.now().toUtc();_items=_items.map((e)=>e.id==item.id?e.copyWith(name:name,amount:amount,note:note,category:category,monthDay:monthDay,clearMonthDay:!category.needsDay,updatedAt:now):e).toList();await _saveLocal();notifyListeners();unawaited(syncNow());}
   Future<void> deleteItem(BudgetItem item) async{final now=DateTime.now().toUtc();_items=_items.map((e)=>e.id==item.id?e.copyWith(deleted:true,updatedAt:now):e).toList();await _saveLocal();notifyListeners();unawaited(syncNow());}
   Future<void> refreshFromCloud()=>syncNow();
   Future<void> _saveLocal() async{await _repository.saveItems(_items);await _repository.saveCycleKey(_key(_cycleMonth));await _repository.saveHistory(_history);}
