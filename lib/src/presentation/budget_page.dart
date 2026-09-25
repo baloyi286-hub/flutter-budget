@@ -48,13 +48,32 @@ class _BudgetPageState extends State<BudgetPage> {
         child:ListView(padding:const EdgeInsets.fromLTRB(16,22,16,90),children:[
           _Hero(month:s.monthTitle,total:s.dueTotal+s.paidTotal,money:_money),
           const SizedBox(height:18),
-          ...BudgetCategory.values.expand((category){
-            final items=s.itemsFor(category,paid:false);
-            if(items.isEmpty)return <Widget>[];
-            return <Widget>[_BudgetCard(title:category.label.toUpperCase(),items:items,total:items.fold(0,(sum,e)=>sum+e.amount),money:_money,checked:false,onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem),const SizedBox(height:18)];
-          }),
+          _BudgetGroup(
+            title:s.monthTitle.toUpperCase(),
+            total:s.dueTotal,
+            money:_money,
+            children:BudgetCategory.values.map((category)=>_BudgetCard(
+              title:category.label.toUpperCase(),
+              items:s.itemsFor(category,paid:false),
+              total:s.itemsFor(category,paid:false).fold(0,(sum,e)=>sum+e.amount),
+              money:_money,checked:false,
+              onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem,
+            )).toList(),
+          ),
           if(s.paidItems.isNotEmpty)...[
-            _BudgetCard(title:'PAID',items:s.paidItems,total:s.paidTotal,money:_money,checked:true,onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem),
+            const SizedBox(height:22),
+            _BudgetGroup(
+              title:'PAID',
+              total:s.paidTotal,
+              money:_money,
+              children:BudgetCategory.values.map((category)=>_BudgetCard(
+                title:category.label.toUpperCase(),
+                items:s.itemsFor(category,paid:true),
+                total:s.itemsFor(category,paid:true).fold(0,(sum,e)=>sum+e.amount),
+                money:_money,checked:true,
+                onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem,
+              )).toList(),
+            ),
           ],
         ]),
       )),
@@ -143,6 +162,44 @@ class _Hero extends StatelessWidget{
       Text(money.format(total),style:const TextStyle(color:Colors.white,fontSize:38,fontWeight:FontWeight.w300)),
       const SizedBox(height:3),
       const Text('MONTHLY BUDGET',style:TextStyle(color:Colors.white70,fontSize:12,letterSpacing:2)),
+    ]),
+  );
+}
+
+class _BudgetGroup extends StatelessWidget{
+  const _BudgetGroup({required this.title,required this.total,required this.money,required this.children});
+  final String title;
+  final double total;
+  final NumberFormat money;
+  final List<Widget> children;
+
+  @override Widget build(BuildContext context)=>Container(
+    decoration:BoxDecoration(
+      color:Colors.white,
+      borderRadius:BorderRadius.circular(10),
+      border:Border.all(color:const Color(0xFFD9E3EC)),
+      boxShadow:const [BoxShadow(blurRadius:8,offset:Offset(0,3),color:Color(0x14000000))],
+    ),
+    clipBehavior:Clip.antiAlias,
+    child:Column(children:[
+      Container(
+        width:double.infinity,
+        color:_deepBlue,
+        padding:const EdgeInsets.symmetric(horizontal:20,vertical:18),
+        child:Text(title,style:const TextStyle(color:Colors.white,fontSize:20,fontWeight:FontWeight.w800,letterSpacing:1.5)),
+      ),
+      Padding(
+        padding:const EdgeInsets.all(12),
+        child:Column(children:children.map((child)=>Padding(padding:const EdgeInsets.only(bottom:12),child:child)).toList()),
+      ),
+      Container(
+        color:const Color(0xFFE8F1FA),
+        padding:const EdgeInsets.symmetric(horizontal:20,vertical:18),
+        child:Row(children:[
+          const Expanded(child:Text('OVERALL TOTAL',style:TextStyle(color:_deepBlue,fontSize:16,fontWeight:FontWeight.w900,letterSpacing:1.2))),
+          Text(money.format(total),style:const TextStyle(color:_deepBlue,fontSize:22,fontWeight:FontWeight.w900)),
+        ]),
+      ),
     ]),
   );
 }
