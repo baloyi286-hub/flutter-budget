@@ -34,6 +34,6 @@ class _BudgetAppState extends State<BudgetApp>{
       appBarTheme:const AppBarTheme(backgroundColor:Color(0xFFFF654E),foregroundColor:Colors.white),
       cardTheme:CardThemeData(color:Colors.white,elevation:2,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(8))),
       inputDecorationTheme:InputDecorationTheme(filled:true,fillColor:const Color(0xFFF7F9FC),border:OutlineInputBorder(borderRadius:BorderRadius.circular(8)))),
-    home:Supabase.instance.client.auth.currentUser==null?LoginPage(onSignedIn:_load):service==null?const Scaffold(body:Center(child:CircularProgressIndicator())):BudgetPage(service:service!),
+    home:Supabase.instance.client.auth.currentUser==null?LoginPage(onSignedIn:_load):service==null?const Scaffold(body:Center(child:CircularProgressIndicator())):BudgetPage(service:service!,onSignedOut:_load),
   );
 }
