@@ -120,7 +120,8 @@ class _BudgetPageState extends State<BudgetPage> {
   ));
 
   void _exportHistory(){
-    final blob=html.Blob([utf8.encode(widget.service.history.join('\n'))],'text/plain');
+    final blob=html.Blob([utf8.encode(widget.service.history.join('
+'))],'text/plain');
     final url=html.Url.createObjectUrlFromBlob(blob);
     html.AnchorElement(href:url)..setAttribute('download','budget_history.txt')..click();
     html.Url.revokeObjectUrl(url);
@@ -174,17 +175,21 @@ class _BudgetCard extends StatelessWidget{
     ]),
   );
 
-  String _suffix(int day){if(day>=11&&day<=13)return 'th';switch(day%10){case 1:return 'st';case 2:return 'nd';case 3:return 'rd';default:return 'th';}}\n\n  Widget _row(BudgetItem item)=>Container(
+  String _suffix(int day){if(day>=11&&day<=13)return 'th';switch(day%10){case 1:return 'st';case 2:return 'nd';case 3:return 'rd';default:return 'th';}}
+
+  Widget _row(BudgetItem item)=>Container(
     decoration:const BoxDecoration(border:Border(bottom:BorderSide(color:Color(0xFFE3EAF1)))),
     padding:const EdgeInsets.symmetric(horizontal:8,vertical:7),
     child:Row(children:[
       Checkbox(activeColor:_orange,value:checked,onChanged:(v)=>onChanged(item,v??false)),
       Expanded(flex:5,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text(item.name,style:TextStyle(color:checked?const Color(0xFF718096):const Color(0xFF263746),fontWeight:FontWeight.w600,decoration:checked?TextDecoration.lineThrough:null)),
-        if(item.monthDay!=null)Text('Goes off on the ${item.monthDay}${_suffix(item.monthDay!)}',style:const TextStyle(color:Color(0xFF1976D2),fontSize:12,fontWeight:FontWeight.w600)),\n        if(item.note.isNotEmpty)Text(item.note,style:const TextStyle(color:Color(0xFF8A9BAD),fontSize:12)),
+        if(item.monthDay!=null)Text('Goes off on the ${item.monthDay}${_suffix(item.monthDay!)}',style:const TextStyle(color:Color(0xFF1976D2),fontSize:12,fontWeight:FontWeight.w600)),
+        if(item.note.isNotEmpty)Text(item.note,style:const TextStyle(color:Color(0xFF8A9BAD),fontSize:12)),
       ])),
       Expanded(flex:2,child:Text(money.format(item.amount),textAlign:TextAlign.right,style:const TextStyle(color:Color(0xFF263746),fontWeight:FontWeight.w600))),
-      IconButton(tooltip:'Edit',color:_blue,icon:const Icon(Icons.edit_outlined,size:20),onPressed:()=>onEdit(item)),\n      IconButton(tooltip:checked?'Move back':'Delete',color:checked?_blue:const Color(0xFF8A9BAD),icon:Icon(checked?Icons.undo:Icons.delete_outline,size:20),onPressed:()=>checked?onChanged(item,false):onDelete(item)),
+      IconButton(tooltip:'Edit',color:_blue,icon:const Icon(Icons.edit_outlined,size:20),onPressed:()=>onEdit(item)),
+      IconButton(tooltip:checked?'Move back':'Delete',color:checked?_blue:const Color(0xFF8A9BAD),icon:Icon(checked?Icons.undo:Icons.delete_outline,size:20),onPressed:()=>checked?onChanged(item,false):onDelete(item)),
     ]),
   );
 }
