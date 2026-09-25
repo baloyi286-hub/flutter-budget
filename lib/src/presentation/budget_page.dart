@@ -120,8 +120,7 @@ class _BudgetPageState extends State<BudgetPage> {
   ));
 
   void _exportHistory(){
-    final blob=html.Blob([utf8.encode(widget.service.history.join('
-'))],'text/plain');
+    final blob=html.Blob([utf8.encode(widget.service.history.join('\\n'))],'text/plain');
     final url=html.Url.createObjectUrlFromBlob(blob);
     html.AnchorElement(href:url)..setAttribute('download','budget_history.txt')..click();
     html.Url.revokeObjectUrl(url);
