@@ -26,7 +26,7 @@ class CloudBudgetStore {
     final id=await _budgetId(cycle,create:true);if(id==null)return;
     await client.from('budget_items').upsert(items.map((e)=>{
       'id':e.id,'budget_id':id,'user_id':uid,'name':e.name,'amount':e.amount,
-      'note':e.note,'paid':e.paid,'deleted':e.deleted,
+      'note':e.note,'paid':e.paid,'deleted':e.deleted,'category':e.category.name,'month_day':e.monthDay,
       'updated_at':(e.updatedAt??DateTime.now()).toUtc().toIso8601String(),
     }).toList(),onConflict:'budget_id,id');
   }
