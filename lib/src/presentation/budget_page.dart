@@ -46,12 +46,15 @@ class _BudgetPageState extends State<BudgetPage> {
       body:Center(child:ConstrainedBox(
         constraints:const BoxConstraints(maxWidth:900),
         child:ListView(padding:const EdgeInsets.fromLTRB(16,22,16,90),children:[
-          _Hero(month:s.monthTitle,total:s.dueTotal+ s.paidTotal,money:_money),
+          _Hero(month:s.monthTitle,total:s.dueTotal+s.paidTotal,money:_money),
           const SizedBox(height:18),
-          _BudgetCard(title:'TO PAY',items:s.dueItems,total:s.dueTotal,money:_money,checked:false,onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem),
+          ...BudgetCategory.values.expand((category){
+            final items=s.itemsFor(category,paid:false);
+            if(items.isEmpty)return <Widget>[];
+            return <Widget>[_BudgetCard(title:category.label.toUpperCase(),items:items,total:items.fold(0,(sum,e)=>sum+e.amount),money:_money,checked:false,onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem),const SizedBox(height:18)];
+          }),
           if(s.paidItems.isNotEmpty)...[
-            const SizedBox(height:18),
-            _BudgetCard(title:'PAID',items:s.paidItems,total:s.paidTotal,money:_money,checked:true,onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem),
+            _BudgetCard(title:'PAID',items:s.paidItems,total:s.paidTotal,money:_money,checked:true,onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem),
           ],
         ]),
       )),
@@ -70,21 +73,39 @@ class _BudgetPageState extends State<BudgetPage> {
     widget.onSignedOut();
   }
 
-  Future<void> _addItem() async{
-    final name=TextEditingController(),amount=TextEditingController(),note=TextEditingController();
-    final ok=await showDialog<bool>(context:context,builder:(context)=>AlertDialog(
-      title:const Text('Add budget item'),
-      content:SizedBox(width:380,child:Column(mainAxisSize:MainAxisSize.min,children:[
+  Future<void> _addItem() async=>_itemDialog();
+
+  Future<void> _editItem(BudgetItem item) async=>_itemDialog(item:item);
+
+  Future<void> _itemDialog({BudgetItem? item}) async{
+    final name=TextEditingController(text:item?.name??'');
+    final amount=TextEditingController(text:item==null?'':item.amount.toStringAsFixed(item.amount.truncateToDouble()==item.amount?0:2));
+    final note=TextEditingController(text:item?.note??'');
+    final day=TextEditingController(text:item?.monthDay?.toString()??'');
+    var category=item?.category??BudgetCategory.responsibilities;
+    final ok=await showDialog<bool>(context:context,builder:(context)=>StatefulBuilder(builder:(context,setDialogState)=>AlertDialog(
+      title:Text(item==null?'Add budget item':'Edit budget item'),
+      content:SizedBox(width:400,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         TextField(controller:name,decoration:const InputDecoration(labelText:'Item')),
         const SizedBox(height:12),
-        TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Amount (R)')),
+        TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount (R)')),
+        const SizedBox(height:12),
+        DropdownButtonFormField<BudgetCategory>(value:category,decoration:const InputDecoration(labelText:'Category'),items:BudgetCategory.values.map((e)=>DropdownMenuItem(value:e,child:Text(e.label))).toList(),onChanged:(v){if(v!=null)setDialogState(()=>category=v);}),
+        if(category.needsDay)...[const SizedBox(height:12),TextField(controller:day,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Day of month',hintText:'e.g. 25, 26 or 27'))],
         const SizedBox(height:12),
         TextField(controller:note,decoration:const InputDecoration(labelText:'Note (optional)')),
-      ])),
-      actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Add'))],
-    ));
+      ]))),
+      actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(context,true),child:Text(item==null?'Add':'Save'))],
+    )));
     final value=double.tryParse(amount.text);
-    if(ok==true&&name.text.trim().isNotEmpty&&value!=null){await widget.service.addItem(name.text,value,note.text);}
+    final monthDay=category.needsDay?int.tryParse(day.text):null;
+    if(ok!=true||name.text.trim().isEmpty||value==null||value<0)return;
+    if(category.needsDay&&(monthDay==null||monthDay<1||monthDay>31)){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid day of the month (1-31).')));
+      return;
+    }
+    if(item==null){await widget.service.addItem(name.text.trim(),value,note.text.trim(),category,monthDay);}
+    else{await widget.service.editItem(item,name.text.trim(),value,note.text.trim(),category,monthDay);}
   }
 
   void _showHistory()=>showDialog<void>(context:context,builder:(context)=>AlertDialog(
@@ -127,9 +148,9 @@ class _Hero extends StatelessWidget{
 }
 
 class _BudgetCard extends StatelessWidget{
-  const _BudgetCard({required this.title,required this.items,required this.total,required this.money,required this.checked,required this.onChanged,required this.onDelete});
+  const _BudgetCard({required this.title,required this.items,required this.total,required this.money,required this.checked,required this.onChanged,required this.onDelete,required this.onEdit});
   final String title;final List<BudgetItem> items;final double total;final NumberFormat money;final bool checked;
-  final Future<void> Function(BudgetItem,bool) onChanged;final Future<void> Function(BudgetItem) onDelete;
+  final Future<void> Function(BudgetItem,bool) onChanged;final Future<void> Function(BudgetItem) onDelete;final Future<void> Function(BudgetItem) onEdit;
 
   @override Widget build(BuildContext context)=>Card(
     clipBehavior:Clip.antiAlias,margin:EdgeInsets.zero,
@@ -153,17 +174,17 @@ class _BudgetCard extends StatelessWidget{
     ]),
   );
 
-  Widget _row(BudgetItem item)=>Container(
+  String _suffix(int day){if(day>=11&&day<=13)return 'th';switch(day%10){case 1:return 'st';case 2:return 'nd';case 3:return 'rd';default:return 'th';}}\n\n  Widget _row(BudgetItem item)=>Container(
     decoration:const BoxDecoration(border:Border(bottom:BorderSide(color:Color(0xFFE3EAF1)))),
     padding:const EdgeInsets.symmetric(horizontal:8,vertical:7),
     child:Row(children:[
       Checkbox(activeColor:_orange,value:checked,onChanged:(v)=>onChanged(item,v??false)),
       Expanded(flex:5,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text(item.name,style:TextStyle(color:checked?const Color(0xFF718096):const Color(0xFF263746),fontWeight:FontWeight.w600,decoration:checked?TextDecoration.lineThrough:null)),
-        if(item.note.isNotEmpty)Text(item.note,style:const TextStyle(color:Color(0xFF8A9BAD),fontSize:12)),
+        if(item.monthDay!=null)Text('Goes off on the ${item.monthDay}${_suffix(item.monthDay!)}',style:const TextStyle(color:Color(0xFF1976D2),fontSize:12,fontWeight:FontWeight.w600)),\n        if(item.note.isNotEmpty)Text(item.note,style:const TextStyle(color:Color(0xFF8A9BAD),fontSize:12)),
       ])),
       Expanded(flex:2,child:Text(money.format(item.amount),textAlign:TextAlign.right,style:const TextStyle(color:Color(0xFF263746),fontWeight:FontWeight.w600))),
-      IconButton(tooltip:checked?'Move back':'Delete',color:checked?_blue:const Color(0xFF8A9BAD),icon:Icon(checked?Icons.undo:Icons.delete_outline,size:20),onPressed:()=>checked?onChanged(item,false):onDelete(item)),
+      IconButton(tooltip:'Edit',color:_blue,icon:const Icon(Icons.edit_outlined,size:20),onPressed:()=>onEdit(item)),\n      IconButton(tooltip:checked?'Move back':'Delete',color:checked?_blue:const Color(0xFF8A9BAD),icon:Icon(checked?Icons.undo:Icons.delete_outline,size:20),onPressed:()=>checked?onChanged(item,false):onDelete(item)),
     ]),
   );
 }
