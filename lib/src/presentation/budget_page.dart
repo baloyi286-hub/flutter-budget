@@ -54,13 +54,15 @@ class _BudgetPageState extends State<BudgetPage> {
             title:s.monthTitle.toUpperCase(),
             total:s.dueTotal,
             money:_money,
-            children:BudgetCategory.values.map((category)=>_BudgetCard(
-              title:category.label.toUpperCase(),
-              items:s.itemsFor(category,paid:false),
-              total:s.itemsFor(category,paid:false).fold(0,(sum,e)=>sum+e.amount),
-              money:_money,checked:false,
-              onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem,
-            )).toList(),
+            children:BudgetCategory.values.expand((category){
+              final items=s.itemsFor(category,paid:false);
+              if(items.isEmpty)return <Widget>[];
+              return <Widget>[_BudgetCard(
+                title:category.label.toUpperCase(),items:items,
+                total:items.fold(0,(sum,e)=>sum+e.amount),money:_money,checked:false,
+                onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem,
+              )];
+            }).toList(),
           ),
           if(s.paidItems.isNotEmpty)...[
             const SizedBox(height:22),
@@ -69,13 +71,15 @@ class _BudgetPageState extends State<BudgetPage> {
               total:s.paidTotal,
               money:_money,
               paid:true,
-              children:BudgetCategory.values.map((category)=>_BudgetCard(
-                title:category.label.toUpperCase(),
-                items:s.itemsFor(category,paid:true),
-                total:s.itemsFor(category,paid:true).fold(0,(sum,e)=>sum+e.amount),
-                money:_money,checked:true,
-                onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem,
-              )).toList(),
+              children:BudgetCategory.values.expand((category){
+                final items=s.itemsFor(category,paid:true);
+                if(items.isEmpty)return <Widget>[];
+                return <Widget>[_BudgetCard(
+                  title:category.label.toUpperCase(),items:items,
+                  total:items.fold(0,(sum,e)=>sum+e.amount),money:_money,checked:true,
+                  onChanged:(i,v)=>s.togglePaid(i,v),onDelete:s.deleteItem,onEdit:_editItem,
+                )];
+              }).toList(),
             ),
           ],
         ]),
