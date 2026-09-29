@@ -27,7 +27,17 @@ class BudgetService extends ChangeNotifier {
   Future<void> initialize() async{
     _cycleMonth=_cycleFor(DateTime.now());final current=_key(_cycleMonth),stored=await _repository.loadCycleKey();
     _items=await _repository.loadItems()??<BudgetItem>[];_history=await _repository.loadHistory();
-    if(stored!=null&&stored!=current){await syncNow();await _archive(stored,_items);final now=DateTime.now().toUtc();_items=_items.where((e)=>!e.deleted).map((e)=>e.copyWith(paid:false,updatedAt:now)).toList();}
+    if(stored!=null&&stored!=current){
+      await _syncCycle(stored);
+      await _archive(stored,_items);
+      final now=DateTime.now().toUtc();
+      _items=_items.where((e)=>!e.deleted).map((e)=>e.copyWith(paid:false,updatedAt:now)).toList();
+      await _saveLocal();
+      if(cloudEnabled){
+        await cloud!.upsertItems(current,_items);
+        for(final i in _items){await cloud!.logEvent(current,i.id,'ROLLED OVER',details:_details(i));}
+      }
+    }
     await _saveLocal();await syncNow();
     _syncTimer=Timer.periodic(const Duration(seconds:20),(_)=>syncNow());
     notifyListeners();
@@ -51,6 +61,25 @@ class BudgetService extends ChangeNotifier {
     }catch(_){_online=false;}finally{_syncing=false;notifyListeners();}
   }
 
+  Future<void> _syncCycle(String cycle) async{
+    if(!cloudEnabled)return;
+    final remote=await cloud!.loadMonth(cycle);
+    if(remote==null){await cloud!.upsertItems(cycle,_items);return;}
+    final merged=<String,BudgetItem>{for(final i in _items)i.id:i};
+    for(final r in remote){final l=merged[r.id];if(l==null||_stamp(r).isAfter(_stamp(l)))merged[r.id]=r;}
+    final upload=<BudgetItem>[];
+    for(final m in merged.values){final r=remote.where((x)=>x.id==m.id).firstOrNull;if(r==null||_stamp(m).isAfter(_stamp(r)))upload.add(m);}
+    if(upload.isNotEmpty)await cloud!.upsertItems(cycle,upload);
+    _items=merged.values.toList();
+  }
+
+  Map<String,dynamic> _details(BudgetItem i)=>{'name':i.name,'amount':i.amount,'category':i.category.name,'month_day':i.monthDay,'note':i.note,'paid':i.paid};
+
+  Future<void> _audit(String action,BudgetItem item) async{
+    if(!cloudEnabled)return;
+    try{await cloud!.logEvent(_key(_cycleMonth),item.id,action,details:_details(item));}catch(_){_online=false;}
+  }
+
   Future<void> _archive(String cycle,List<BudgetItem> items) async{
     final live=items.where((e)=>!e.deleted).toList();final total=live.fold<double>(0,(s,e)=>s+e.amount),paid=live.where((e)=>e.paid).fold<double>(0,(s,e)=>s+e.amount);
     final b=StringBuffer()..writeln('Budget history: $cycle')..writeln('--------------------------------');
@@ -63,17 +92,17 @@ class BudgetService extends ChangeNotifier {
   Future<void> togglePaid(BudgetItem item,bool paid) async{
     final updated=item.copyWith(paid:paid,updatedAt:DateTime.now().toUtc());
     _replace(updated);await _saveLocal();notifyListeners();
-    await _pushItem(updated);
+    await _pushItem(updated);await _audit(paid?'MARKED PAID':'MARKED UNPAID',updated);
   }
   Future<void> addItem(String name,double amount,String note,BudgetCategory category,int? monthDay) async{
     final created=BudgetItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name,amount:amount,note:note,category:category,monthDay:monthDay,updatedAt:DateTime.now().toUtc());
     _items.add(created);await _saveLocal();notifyListeners();
-    await _pushItem(created);
+    await _pushItem(created);await _audit('ADDED',created);
   }
   Future<void> editItem(BudgetItem item,String name,double amount,String note,BudgetCategory category,int? monthDay) async{
     final updated=item.copyWith(name:name,amount:amount,note:note,category:category,monthDay:monthDay,clearMonthDay:!category.needsDay,updatedAt:DateTime.now().toUtc());
     _replace(updated);await _saveLocal();notifyListeners();
-    await _pushItem(updated);
+    await _pushItem(updated);await _audit('EDITED',updated);
   }
   void _replace(BudgetItem item){_items=_items.map((e)=>e.id==item.id?item:e).toList();}
   Future<void> _pushItem(BudgetItem item) async{
@@ -82,7 +111,11 @@ class BudgetService extends ChangeNotifier {
     catch(_){_online=false;}
     notifyListeners();
   }
-  Future<void> deleteItem(BudgetItem item) async{final now=DateTime.now().toUtc();_items=_items.map((e)=>e.id==item.id?e.copyWith(deleted:true,updatedAt:now):e).toList();await _saveLocal();notifyListeners();unawaited(syncNow());}
+  Future<void> deleteItem(BudgetItem item) async{
+    final updated=item.copyWith(deleted:true,updatedAt:DateTime.now().toUtc());
+    _replace(updated);await _saveLocal();notifyListeners();
+    await _pushItem(updated);await _audit('DELETED',updated);
+  }
   Future<void> refreshFromCloud()=>syncNow();
   Future<void> _saveLocal() async{await _repository.saveItems(_items);await _repository.saveCycleKey(_key(_cycleMonth));await _repository.saveHistory(_history);}
   @override void dispose(){_syncTimer?.cancel();super.dispose();}
