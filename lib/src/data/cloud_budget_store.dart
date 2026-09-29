@@ -31,6 +31,14 @@ class CloudBudgetStore {
     }).toList(),onConflict:'budget_id,id');
   }
 
+  Future<void> logEvent(String cycle,String itemId,String action,{Map<String,dynamic>? details}) async{
+    final uid=user?.id;if(uid==null)return;
+    await client.from('budget_audit').insert({
+      'user_id':uid,'cycle_month':'$cycle-01','item_id':itemId,'action':action,
+      'details':details??<String,dynamic>{},
+    });
+  }
+
   Future<void> archiveMonth(String cycle,List<BudgetItem> items) async{
     final uid=user?.id;if(uid==null)return;
     final live=items.where((e)=>!e.deleted).toList();
@@ -49,8 +57,20 @@ class CloudBudgetStore {
       final cycle=(row['cycle_month'] as String).substring(0,7);
       final items=(row['snapshot'] as List).map((e)=>BudgetItem.fromJson(Map<String,dynamic>.from(e as Map))).toList();
       final b=StringBuffer()..writeln('Budget history: $cycle')..writeln('--------------------------------');
-      for(final i in items){b.writeln('${i.paid?'[PAID]':'[DUE]'} ${i.name}\tR${i.amount.toStringAsFixed(2)}\t${i.note}');}
-      b..writeln('Paid: R${(row['paid_total'] as num).toStringAsFixed(2)}')
+      for(final i in items){
+        b.writeln('${i.paid?'[PAID]':'[DUE]'} ${i.name}\tR${i.amount.toStringAsFixed(2)}\t${i.category.label}${i.monthDay==null?'':'\tDay ${i.monthDay}'}\t${i.note}');
+      }
+      final auditRows=await client.from('budget_audit').select().eq('user_id',uid).eq('cycle_month',row['cycle_month']).order('created_at');
+      if((auditRows as List).isNotEmpty){
+        b.writeln()..writeln('AUDIT TRAIL')..writeln('--------------------------------');
+        for(final event in auditRows){
+          final details=Map<String,dynamic>.from((event['details'] as Map?)??{});
+          final at=DateTime.tryParse(event['created_at'] as String? ?? '');
+          final when=at==null?(event['created_at']??'').toString():at.toLocal().toString().substring(0,19);
+          b.writeln('$when  ${event['action']}  ${details['name']??event['item_id']}  ${details['amount']==null?'':'R${details['amount']}'}');
+        }
+      }
+      b..writeln()..writeln('Paid: R${(row['paid_total'] as num).toStringAsFixed(2)}')
        ..writeln('Outstanding: R${(row['unpaid_total'] as num).toStringAsFixed(2)}')
        ..writeln('Total: R${(row['total'] as num).toStringAsFixed(2)}')..writeln();
       return b.toString();
