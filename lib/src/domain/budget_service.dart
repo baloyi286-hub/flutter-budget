@@ -20,17 +20,6 @@ class BudgetService extends ChangeNotifier {
   double get paidTotal=>paidItems.fold(0,(s,e)=>s+e.amount);
   bool get cloudEnabled=>cloud?.user!=null; bool get online=>_online;
 
-  static const _seed=<BudgetItem>[
-    BudgetItem(id:'rent',name:'Rent',amount:4000,note:'Aug'),BudgetItem(id:'groceries',name:'Groceries',amount:2000),
-    BudgetItem(id:'rain',name:'Rain wifi',amount:1000,note:'Aug'),BudgetItem(id:'mom',name:'Mom ',amount:2000,note:'Aug'),
-    BudgetItem(id:'funeral',name:'Standard funeral policy',amount:800,note:'Aug'),BudgetItem(id:'momentum',name:'Momentum life insurance ',amount:300,note:'Aug'),
-    BudgetItem(id:'capfin',name:'Capfin',amount:1200,note:'Aug'),BudgetItem(id:'vodacom',name:'Vodacom wifi',amount:1600),
-    BudgetItem(id:'chatgpt',name:'Chatgpt',amount:200,note:'Aug'),BudgetItem(id:'office',name:'Office Days',amount:300,note:'Aug'),
-    BudgetItem(id:'youtube',name:'YouTube ',amount:100,note:'Aug'),BudgetItem(id:'browser',name:'Browser',amount:100,note:'Aug'),
-    BudgetItem(id:'apple',name:'Apple music',amount:70,note:'Aug'),BudgetItem(id:'cash',name:'Cash crusaders ',amount:3500,note:'Aug'),
-    BudgetItem(id:'crunchy',name:'Crunchyroll',amount:50,note:'Aug'),BudgetItem(id:'netflix',name:'Netflix ',amount:100,note:'Aug'),
-    BudgetItem(id:'ezviz',name:'EzViz',amount:200,note:'Aug'),BudgetItem(id:'water',name:'Water',amount:400),BudgetItem(id:'mbali',name:'Mbali',amount:1000),
-  ];
   DateTime _cycleFor(DateTime n)=>n.day>=22?DateTime(n.year,n.month+1):DateTime(n.year,n.month);
   String _key(DateTime d)=>'${d.year}-${d.month.toString().padLeft(2,'0')}';
   DateTime _stamp(BudgetItem i)=>i.updatedAt??DateTime.fromMillisecondsSinceEpoch(0,isUtc:true);
@@ -71,9 +60,28 @@ class BudgetService extends ChangeNotifier {
     try{if(cloudEnabled)await cloud!.archiveMonth(cycle,live);}catch(_){_online=false;}
   }
 
-  Future<void> togglePaid(BudgetItem item,bool paid) async{final now=DateTime.now().toUtc();_items=_items.map((e)=>e.id==item.id?e.copyWith(paid:paid,updatedAt:now):e).toList();await _saveLocal();notifyListeners();unawaited(syncNow());}
-  Future<void> addItem(String name,double amount,String note,BudgetCategory category,int? monthDay) async{_items.add(BudgetItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name,amount:amount,note:note,category:category,monthDay:monthDay,updatedAt:DateTime.now().toUtc()));await _saveLocal();notifyListeners();unawaited(syncNow());}
-  Future<void> editItem(BudgetItem item,String name,double amount,String note,BudgetCategory category,int? monthDay) async{final now=DateTime.now().toUtc();_items=_items.map((e)=>e.id==item.id?e.copyWith(name:name,amount:amount,note:note,category:category,monthDay:monthDay,clearMonthDay:!category.needsDay,updatedAt:now):e).toList();await _saveLocal();notifyListeners();unawaited(syncNow());}
+  Future<void> togglePaid(BudgetItem item,bool paid) async{
+    final updated=item.copyWith(paid:paid,updatedAt:DateTime.now().toUtc());
+    _replace(updated);await _saveLocal();notifyListeners();
+    await _pushItem(updated);
+  }
+  Future<void> addItem(String name,double amount,String note,BudgetCategory category,int? monthDay) async{
+    final created=BudgetItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name,amount:amount,note:note,category:category,monthDay:monthDay,updatedAt:DateTime.now().toUtc());
+    _items.add(created);await _saveLocal();notifyListeners();
+    await _pushItem(created);
+  }
+  Future<void> editItem(BudgetItem item,String name,double amount,String note,BudgetCategory category,int? monthDay) async{
+    final updated=item.copyWith(name:name,amount:amount,note:note,category:category,monthDay:monthDay,clearMonthDay:!category.needsDay,updatedAt:DateTime.now().toUtc());
+    _replace(updated);await _saveLocal();notifyListeners();
+    await _pushItem(updated);
+  }
+  void _replace(BudgetItem item){_items=_items.map((e)=>e.id==item.id?item:e).toList();}
+  Future<void> _pushItem(BudgetItem item) async{
+    if(!cloudEnabled)return;
+    try{await cloud!.upsertItems(_key(_cycleMonth),[item]);_online=true;}
+    catch(_){_online=false;}
+    notifyListeners();
+  }
   Future<void> deleteItem(BudgetItem item) async{final now=DateTime.now().toUtc();_items=_items.map((e)=>e.id==item.id?e.copyWith(deleted:true,updatedAt:now):e).toList();await _saveLocal();notifyListeners();unawaited(syncNow());}
   Future<void> refreshFromCloud()=>syncNow();
   Future<void> _saveLocal() async{await _repository.saveItems(_items);await _repository.saveCycleKey(_key(_cycleMonth));await _repository.saveHistory(_history);}
