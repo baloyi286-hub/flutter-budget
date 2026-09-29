@@ -43,9 +43,11 @@ class _BudgetPageState extends State<BudgetPage> {
         backgroundColor:_orange,foregroundColor:Colors.white,
         onPressed:_addItem,child:const Icon(Icons.add),
       ),
-      body:Center(child:ConstrainedBox(
+      body:RefreshIndicator(
+        onRefresh:()=>s.refreshFromCloud(),
+        child:Center(child:ConstrainedBox(
         constraints:const BoxConstraints(maxWidth:900),
-        child:ListView(padding:const EdgeInsets.fromLTRB(16,22,16,90),children:[
+        child:ListView(physics:const AlwaysScrollableScrollPhysics(),padding:const EdgeInsets.fromLTRB(16,22,16,90),children:[
           _Hero(month:s.monthTitle,total:s.dueTotal+s.paidTotal,money:_money),
           const SizedBox(height:18),
           _BudgetGroup(
@@ -66,6 +68,7 @@ class _BudgetPageState extends State<BudgetPage> {
               title:'PAID',
               total:s.paidTotal,
               money:_money,
+              paid:true,
               children:BudgetCategory.values.map((category)=>_BudgetCard(
                 title:category.label.toUpperCase(),
                 items:s.itemsFor(category,paid:true),
@@ -77,6 +80,7 @@ class _BudgetPageState extends State<BudgetPage> {
           ],
         ]),
       )),
+      ),
     );
   }
 
@@ -167,11 +171,12 @@ class _Hero extends StatelessWidget{
 }
 
 class _BudgetGroup extends StatelessWidget{
-  const _BudgetGroup({required this.title,required this.total,required this.money,required this.children});
+  const _BudgetGroup({required this.title,required this.total,required this.money,required this.children,this.paid=false});
   final String title;
   final double total;
   final NumberFormat money;
   final List<Widget> children;
+  final bool paid;
 
   @override Widget build(BuildContext context)=>Container(
     decoration:BoxDecoration(
@@ -184,7 +189,7 @@ class _BudgetGroup extends StatelessWidget{
     child:Column(children:[
       Container(
         width:double.infinity,
-        color:_deepBlue,
+        color:paid?Colors.green:_deepBlue,
         padding:const EdgeInsets.symmetric(horizontal:20,vertical:18),
         child:Text(title,style:const TextStyle(color:Colors.white,fontSize:20,fontWeight:FontWeight.w800,letterSpacing:1.5)),
       ),
@@ -193,11 +198,11 @@ class _BudgetGroup extends StatelessWidget{
         child:Column(children:children.map((child)=>Padding(padding:const EdgeInsets.only(bottom:12),child:child)).toList()),
       ),
       Container(
-        color:const Color(0xFFE8F1FA),
+        color:paid?Colors.green:const Color(0xFFE8F1FA),
         padding:const EdgeInsets.symmetric(horizontal:20,vertical:18),
         child:Row(children:[
-          const Expanded(child:Text('OVERALL TOTAL',style:TextStyle(color:_deepBlue,fontSize:16,fontWeight:FontWeight.w900,letterSpacing:1.2))),
-          Text(money.format(total),style:const TextStyle(color:_deepBlue,fontSize:22,fontWeight:FontWeight.w900)),
+          Expanded(child:Text('OVERALL TOTAL',style:TextStyle(color:paid?Colors.white:_deepBlue,fontSize:16,fontWeight:FontWeight.w900,letterSpacing:1.2))),
+          Text(money.format(total),style:TextStyle(color:paid?Colors.white:_deepBlue,fontSize:22,fontWeight:FontWeight.w900)),
         ]),
       ),
     ]),
