@@ -19,7 +19,7 @@ class BudgetPage extends StatefulWidget {
 
 class _BudgetPageState extends State<BudgetPage> {
   final _money = NumberFormat.currency(locale:'en_ZA',symbol:'R',decimalDigits:0);
-  @override void initState(){super.initState();widget.service.addListener(_refresh);}
+  @override void initState(){super.initState();widget.service.addListener(_refresh);WidgetsBinding.instance.addPostFrameCallback((_)=>_checkReminders());}
   @override void dispose(){widget.service.removeListener(_refresh);super.dispose();}
   void _refresh()=>setState((){});
 
@@ -44,7 +44,7 @@ class _BudgetPageState extends State<BudgetPage> {
         onPressed:_addItem,child:const Icon(Icons.add),
       ),
       body:RefreshIndicator(
-        onRefresh:()=>s.refreshFromCloud(),
+        onRefresh:() async{await s.refreshFromCloud();await _checkReminders();},
         child:Center(child:ConstrainedBox(
         constraints:const BoxConstraints(maxWidth:900),
         child:ListView(physics:const AlwaysScrollableScrollPhysics(),padding:const EdgeInsets.fromLTRB(16,22,16,90),children:[
@@ -110,6 +110,8 @@ class _BudgetPageState extends State<BudgetPage> {
     final note=TextEditingController(text:item?.note??'');
     final day=TextEditingController(text:item?.monthDay?.toString()??'');
     var category=item?.category??BudgetCategory.responsibilities;
+    var reminderEnabled=item?.reminderEnabled??false;
+    var reminderDaysBefore=item?.reminderDaysBefore??1;
     final ok=await showDialog<bool>(context:context,builder:(context)=>StatefulBuilder(builder:(context,setDialogState)=>AlertDialog(
       title:Text(item==null?'Add budget item':'Edit budget item'),
       content:SizedBox(width:400,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
@@ -118,7 +120,36 @@ class _BudgetPageState extends State<BudgetPage> {
         TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount (R)')),
         const SizedBox(height:12),
         DropdownButtonFormField<BudgetCategory>(value:category,decoration:const InputDecoration(labelText:'Category'),items:BudgetCategory.values.map((e)=>DropdownMenuItem(value:e,child:Text(e.label))).toList(),onChanged:(v){if(v!=null)setDialogState(()=>category=v);}),
-        if(category.needsDay)...[const SizedBox(height:12),TextField(controller:day,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Day of month',hintText:'e.g. 25, 26 or 27'))],
+        if(category.needsDay)...[
+          const SizedBox(height:12),
+          TextField(controller:day,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Day of month',hintText:'e.g. 25, 26 or 27')),
+          const SizedBox(height:8),
+          SwitchListTile(
+            contentPadding:EdgeInsets.zero,
+            title:const Text('Payment reminder'),
+            subtitle:const Text('Notify me before this payment goes off'),
+            value:reminderEnabled,
+            onChanged:(v) async{
+              if(v&&html.Notification.permission!='granted'){
+                final permission=await html.Notification.requestPermission();
+                if(permission!='granted')return;
+              }
+              setDialogState(()=>reminderEnabled=v);
+            },
+          ),
+          if(reminderEnabled)DropdownButtonFormField<int>(
+            value:reminderDaysBefore,
+            decoration:const InputDecoration(labelText:'Remind me'),
+            items:const [
+              DropdownMenuItem(value:0,child:Text('On the day')),
+              DropdownMenuItem(value:1,child:Text('1 day before')),
+              DropdownMenuItem(value:2,child:Text('2 days before')),
+              DropdownMenuItem(value:3,child:Text('3 days before')),
+              DropdownMenuItem(value:7,child:Text('7 days before')),
+            ],
+            onChanged:(v){if(v!=null)setDialogState(()=>reminderDaysBefore=v);},
+          ),
+        ],
         const SizedBox(height:12),
         TextField(controller:note,decoration:const InputDecoration(labelText:'Note (optional)')),
       ]))),
@@ -131,8 +162,28 @@ class _BudgetPageState extends State<BudgetPage> {
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid day of the month (1-31).')));
       return;
     }
-    if(item==null){await widget.service.addItem(name.text.trim(),value,note.text.trim(),category,monthDay);}
-    else{await widget.service.editItem(item,name.text.trim(),value,note.text.trim(),category,monthDay);}
+    if(item==null){await widget.service.addItem(name.text.trim(),value,note.text.trim(),category,monthDay,category.needsDay&&reminderEnabled,reminderDaysBefore);}
+    else{await widget.service.editItem(item,name.text.trim(),value,note.text.trim(),category,monthDay,category.needsDay&&reminderEnabled,reminderDaysBefore);}
+    await _checkReminders();
+  }
+
+  Future<void> _checkReminders() async{
+    if(html.Notification.permission!='granted')return;
+    final now=DateTime.now();
+    final today=DateTime(now.year,now.month,now.day);
+    for(final item in widget.service.dueItems){
+      if(!item.reminderEnabled||item.monthDay==null)continue;
+      final lastDay=DateTime(widget.service.cycleMonth.year,widget.service.cycleMonth.month+1,0).day;
+      final billDay=item.monthDay!.clamp(1,lastDay);
+      final billDate=DateTime(widget.service.cycleMonth.year,widget.service.cycleMonth.month,billDay);
+      final remindDate=billDate.subtract(Duration(days:item.reminderDaysBefore));
+      if(today.isBefore(remindDate)||today.isAfter(billDate))continue;
+      final key='budget_reminder_${widget.service.cycleMonth.year}_${widget.service.cycleMonth.month}_${item.id}_${item.reminderDaysBefore}';
+      if(html.window.localStorage[key]=='sent')continue;
+      final when=item.reminderDaysBefore==0?'today':'on ${DateFormat('d MMM').format(billDate)}';
+      html.Notification('Payment reminder',body:'${item.name} - ${_money.format(item.amount)} goes off $when.');
+      html.window.localStorage[key]='sent';
+    }
   }
 
   void _showHistory()=>showDialog<void>(context:context,builder:(context)=>AlertDialog(
@@ -249,7 +300,7 @@ class _BudgetCard extends StatelessWidget{
       Checkbox(activeColor:_orange,value:checked,onChanged:(v)=>onChanged(item,v??false)),
       Expanded(flex:5,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text(item.name,style:TextStyle(color:checked?const Color(0xFF718096):const Color(0xFF263746),fontWeight:FontWeight.w600,decoration:checked?TextDecoration.lineThrough:null)),
-        if(item.monthDay!=null)Text('Goes off on the ${item.monthDay}${_suffix(item.monthDay!)}',style:const TextStyle(color:Color(0xFF1976D2),fontSize:12,fontWeight:FontWeight.w600)),
+        if(item.monthDay!=null)Text('Goes off on the ${item.monthDay}${_suffix(item.monthDay!)}${item.reminderEnabled?' • Reminder ${item.reminderDaysBefore==0?'same day':'${item.reminderDaysBefore}d before'}':''}',style:const TextStyle(color:Color(0xFF1976D2),fontSize:12,fontWeight:FontWeight.w600)),
         if(item.note.isNotEmpty)Text(item.note,style:const TextStyle(color:Color(0xFF8A9BAD),fontSize:12)),
       ])),
       Expanded(flex:2,child:Text(money.format(item.amount),textAlign:TextAlign.right,style:const TextStyle(color:Color(0xFF263746),fontWeight:FontWeight.w600))),
