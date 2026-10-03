@@ -16,6 +16,7 @@ class BudgetService extends ChangeNotifier {
   List<BudgetItem> itemsFor(BudgetCategory category,{required bool paid})=>_sorted(_items.where((e)=>!e.deleted&&e.paid==paid&&e.category==category));
   List<String> get history=>List.unmodifiable(_history);
   String get monthTitle=>DateFormat('MMMM yyyy').format(_cycleMonth);
+  DateTime get cycleMonth=>_cycleMonth;
   double get dueTotal=>dueItems.fold(0,(s,e)=>s+e.amount);
   double get paidTotal=>paidItems.fold(0,(s,e)=>s+e.amount);
   bool get cloudEnabled=>cloud?.user!=null; bool get online=>_online;
@@ -73,7 +74,7 @@ class BudgetService extends ChangeNotifier {
     _items=merged.values.toList();
   }
 
-  Map<String,dynamic> _details(BudgetItem i)=>{'name':i.name,'amount':i.amount,'category':i.category.name,'month_day':i.monthDay,'note':i.note,'paid':i.paid};
+  Map<String,dynamic> _details(BudgetItem i)=>{'name':i.name,'amount':i.amount,'category':i.category.name,'month_day':i.monthDay,'note':i.note,'paid':i.paid,'reminder_enabled':i.reminderEnabled,'reminder_days_before':i.reminderDaysBefore};
 
   Future<void> _audit(String action,BudgetItem item) async{
     if(!cloudEnabled)return;
@@ -94,13 +95,13 @@ class BudgetService extends ChangeNotifier {
     _replace(updated);await _saveLocal();notifyListeners();
     await _pushItem(updated);await _audit(paid?'MARKED PAID':'MARKED UNPAID',updated);
   }
-  Future<void> addItem(String name,double amount,String note,BudgetCategory category,int? monthDay) async{
-    final created=BudgetItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name,amount:amount,note:note,category:category,monthDay:monthDay,updatedAt:DateTime.now().toUtc());
+  Future<void> addItem(String name,double amount,String note,BudgetCategory category,int? monthDay,bool reminderEnabled,int reminderDaysBefore) async{
+    final created=BudgetItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name,amount:amount,note:note,category:category,monthDay:monthDay,reminderEnabled:reminderEnabled,reminderDaysBefore:reminderDaysBefore,updatedAt:DateTime.now().toUtc());
     _items.add(created);await _saveLocal();notifyListeners();
     await _pushItem(created);await _audit('ADDED',created);
   }
-  Future<void> editItem(BudgetItem item,String name,double amount,String note,BudgetCategory category,int? monthDay) async{
-    final updated=item.copyWith(name:name,amount:amount,note:note,category:category,monthDay:monthDay,clearMonthDay:!category.needsDay,updatedAt:DateTime.now().toUtc());
+  Future<void> editItem(BudgetItem item,String name,double amount,String note,BudgetCategory category,int? monthDay,bool reminderEnabled,int reminderDaysBefore) async{
+    final updated=item.copyWith(name:name,amount:amount,note:note,category:category,monthDay:monthDay,clearMonthDay:!category.needsDay,reminderEnabled:category.needsDay&&reminderEnabled,reminderDaysBefore:reminderDaysBefore,updatedAt:DateTime.now().toUtc());
     _replace(updated);await _saveLocal();notifyListeners();
     await _pushItem(updated);await _audit('EDITED',updated);
   }
