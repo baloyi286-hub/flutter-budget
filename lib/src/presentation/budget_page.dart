@@ -29,6 +29,7 @@ class _BudgetPageState extends State<BudgetPage> {
       appBar:AppBar(
         title:const Text('MONTHLY BUDGET',style:TextStyle(fontWeight:FontWeight.w700,letterSpacing:2)),
         actions:[
+          IconButton(tooltip:'Test notifications',onPressed:_testNotification,icon:const Icon(Icons.notifications_active_outlined)),
           IconButton(tooltip:'History',onPressed:_showHistory,icon:const Icon(Icons.history)),
           PopupMenuButton<String>(
             tooltip:'Account',
@@ -165,6 +166,24 @@ class _BudgetPageState extends State<BudgetPage> {
     if(item==null){await widget.service.addItem(name.text.trim(),value,note.text.trim(),category,monthDay,reminderEnabled,reminderDaysBefore);}
     else{await widget.service.editItem(item,name.text.trim(),value,note.text.trim(),category,monthDay,category.needsDay&&reminderEnabled,reminderDaysBefore);}
     await _checkReminders();
+  }
+
+  Future<void> _testNotification() async{
+    try{
+      var permission=html.Notification.permission;
+      if(permission!='granted'){
+        permission=await html.Notification.requestPermission();
+      }
+      if(!mounted)return;
+      if(permission!='granted'){
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Notifications are not allowed on this device (permission: $permission). On iPhone, background alerts require Web Push.')));
+        return;
+      }
+      html.Notification('Budget notification test',body:'Your budget app can display browser notifications on this device.');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Test notification requested. Check your device notifications.')));
+    }catch(_){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Browser notifications are unavailable here. iPhone requires a Home Screen app and Web Push implementation.')));
+    }
   }
 
   Future<void> _checkReminders() async{
