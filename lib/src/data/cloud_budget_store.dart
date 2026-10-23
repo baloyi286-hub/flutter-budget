@@ -53,7 +53,8 @@ class CloudBudgetStore {
   Future<List<String>> loadHistoryText() async{
     final uid=user?.id;if(uid==null)return [];
     final rows=await client.from('budget_history').select().eq('user_id',uid).order('cycle_month',ascending:false);
-    return (rows as List).map((row){
+    final history=<String>[];
+    for(final row in (rows as List)){
       final cycle=(row['cycle_month'] as String).substring(0,7);
       final items=(row['snapshot'] as List).map((e)=>BudgetItem.fromJson(Map<String,dynamic>.from(e as Map))).toList();
       final b=StringBuffer()..writeln('Budget history: $cycle')..writeln('--------------------------------');
@@ -62,7 +63,7 @@ class CloudBudgetStore {
       }
       final auditRows=await client.from('budget_audit').select().eq('user_id',uid).eq('cycle_month',row['cycle_month']).order('created_at');
       if((auditRows as List).isNotEmpty){
-        b.writeln()..writeln('AUDIT TRAIL')..writeln('--------------------------------');
+        b..writeln()..writeln('AUDIT TRAIL')..writeln('--------------------------------');
         for(final event in auditRows){
           final details=Map<String,dynamic>.from((event['details'] as Map?)??{});
           final at=DateTime.tryParse(event['created_at'] as String? ?? '');
@@ -73,7 +74,8 @@ class CloudBudgetStore {
       b..writeln()..writeln('Paid: R${(row['paid_total'] as num).toStringAsFixed(2)}')
        ..writeln('Outstanding: R${(row['unpaid_total'] as num).toStringAsFixed(2)}')
        ..writeln('Total: R${(row['total'] as num).toStringAsFixed(2)}')..writeln();
-      return b.toString();
-    }).toList();
+      history.add(b.toString());
+    }
+    return history;
   }
 }
