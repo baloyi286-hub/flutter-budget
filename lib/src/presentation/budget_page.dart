@@ -120,7 +120,7 @@ class _BudgetPageState extends State<BudgetPage> {
         TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount (R)')),
         const SizedBox(height:12),
         DropdownButtonFormField<BudgetCategory>(value:category,decoration:const InputDecoration(labelText:'Category'),items:BudgetCategory.values.map((e)=>DropdownMenuItem(value:e,child:Text(e.label))).toList(),onChanged:(v){if(v!=null)setDialogState(()=>category=v);}),
-        if(category.needsDay)...[
+        ...[
           const SizedBox(height:12),
           TextField(controller:day,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Day of month',hintText:'e.g. 25, 26 or 27')),
           const SizedBox(height:8),
@@ -156,13 +156,13 @@ class _BudgetPageState extends State<BudgetPage> {
       actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(context,true),child:Text(item==null?'Add':'Save'))],
     )));
     final value=double.tryParse(amount.text);
-    final monthDay=category.needsDay?int.tryParse(day.text):null;
+    final monthDay=day.text.trim().isEmpty?null:int.tryParse(day.text);
     if(ok!=true||name.text.trim().isEmpty||value==null||value<0)return;
-    if(category.needsDay&&(monthDay==null||monthDay<1||monthDay>31)){
+    if((category.needsDay||reminderEnabled)&&(monthDay==null||monthDay<1||monthDay>31)){
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid day of the month (1-31).')));
       return;
     }
-    if(item==null){await widget.service.addItem(name.text.trim(),value,note.text.trim(),category,monthDay,category.needsDay&&reminderEnabled,reminderDaysBefore);}
+    if(item==null){await widget.service.addItem(name.text.trim(),value,note.text.trim(),category,monthDay,reminderEnabled,reminderDaysBefore);}
     else{await widget.service.editItem(item,name.text.trim(),value,note.text.trim(),category,monthDay,category.needsDay&&reminderEnabled,reminderDaysBefore);}
     await _checkReminders();
   }
