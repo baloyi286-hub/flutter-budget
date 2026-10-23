@@ -101,7 +101,7 @@ class BudgetService extends ChangeNotifier {
     await _pushItem(created);await _audit('ADDED',created);
   }
   Future<void> editItem(BudgetItem item,String name,double amount,String note,BudgetCategory category,int? monthDay,bool reminderEnabled,int reminderDaysBefore) async{
-    final updated=item.copyWith(name:name,amount:amount,note:note,category:category,monthDay:monthDay,clearMonthDay:!category.needsDay,reminderEnabled:category.needsDay&&reminderEnabled,reminderDaysBefore:reminderDaysBefore,updatedAt:DateTime.now().toUtc());
+    final updated=item.copyWith(name:name,amount:amount,note:note,category:category,monthDay:monthDay,clearMonthDay:monthDay==null,reminderEnabled:reminderEnabled,reminderDaysBefore:reminderDaysBefore,updatedAt:DateTime.now().toUtc());
     _replace(updated);await _saveLocal();notifyListeners();
     await _pushItem(updated);await _audit('EDITED',updated);
   }
