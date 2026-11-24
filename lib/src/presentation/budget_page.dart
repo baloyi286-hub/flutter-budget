@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/budget_item.dart';
 import '../domain/budget_service.dart';
+import 'groceries_page.dart';
 
 const _blue = Color(0xFF1976D2);
 const _deepBlue = Color(0xFF145FA8);
@@ -19,6 +20,7 @@ class BudgetPage extends StatefulWidget {
 
 class _BudgetPageState extends State<BudgetPage> {
   final _money = NumberFormat.currency(locale:'en_ZA',symbol:'R',decimalDigits:0);
+  int _tab=0;
   @override void initState(){super.initState();widget.service.addListener(_refresh);WidgetsBinding.instance.addPostFrameCallback((_)=>_checkReminders());}
   @override void dispose(){widget.service.removeListener(_refresh);super.dispose();}
   void _refresh()=>setState((){});
@@ -27,10 +29,10 @@ class _BudgetPageState extends State<BudgetPage> {
     final s=widget.service;
     return Scaffold(
       appBar:AppBar(
-        title:const Text('MONTHLY BUDGET',style:TextStyle(fontWeight:FontWeight.w700,letterSpacing:2)),
+        title:Text(_tab==0?'MONTHLY BUDGET':'GROCERIES',style:const TextStyle(fontWeight:FontWeight.w700,letterSpacing:2)),
         actions:[
-          IconButton(tooltip:'Test notifications',onPressed:_testNotification,icon:const Icon(Icons.notifications_active_outlined)),
-          IconButton(tooltip:'History',onPressed:_showHistory,icon:const Icon(Icons.history)),
+          if(_tab==0)IconButton(tooltip:'Test notifications',onPressed:_testNotification,icon:const Icon(Icons.notifications_active_outlined)),
+          if(_tab==0)IconButton(tooltip:'History',onPressed:_showHistory,icon:const Icon(Icons.history)),
           PopupMenuButton<String>(
             tooltip:'Account',
             icon:const Icon(Icons.account_circle_outlined),
@@ -40,11 +42,19 @@ class _BudgetPageState extends State<BudgetPage> {
           const SizedBox(width:6),
         ],
       ),
-      floatingActionButton:FloatingActionButton(
+      bottomNavigationBar:NavigationBar(
+        selectedIndex:_tab,
+        onDestinationSelected:(v)=>setState(()=>_tab=v),
+        destinations:const [
+          NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),selectedIcon:Icon(Icons.account_balance_wallet),label:'Monthly Budget'),
+          NavigationDestination(icon:Icon(Icons.shopping_cart_outlined),selectedIcon:Icon(Icons.shopping_cart),label:'Groceries'),
+        ],
+      ),
+      floatingActionButton:_tab==0?FloatingActionButton(
         backgroundColor:_orange,foregroundColor:Colors.white,
         onPressed:_addItem,child:const Icon(Icons.add),
-      ),
-      body:RefreshIndicator(
+      ):null,
+      body:_tab==1?const GroceriesPage():RefreshIndicator(
         onRefresh:() async{await s.refreshFromCloud();await _checkReminders();},
         child:Center(child:ConstrainedBox(
         constraints:const BoxConstraints(maxWidth:900),
