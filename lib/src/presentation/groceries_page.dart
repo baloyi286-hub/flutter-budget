@@ -117,7 +117,10 @@ class _GroceriesPageState extends State<GroceriesPage> {
     picker.click();
     await picker.onChange.first;
     if(picker.files==null||picker.files!.isEmpty)return null;
-    final file=picker.files!.first;
+    return compressThumbnail(picker.files!.first);
+  }
+
+  Future<String> compressThumbnail(html.File file) async{
     if(!file.type.startsWith('image/'))throw const FormatException('Choose an image file.');
     final reader=html.FileReader();
     reader.readAsDataUrl(file);
@@ -168,7 +171,32 @@ class _GroceriesPageState extends State<GroceriesPage> {
     if(!groceryCategories.contains(category))category='Other';
     DateTime? date=existing?.shoppingDate;
     String? photo=existing?.thumbnailData;
-    final save=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+    StreamSubscription<html.ClipboardEvent>? pasteListener;
+    bool dialogOpen=true;
+    final save=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh){
+      // Listen only while this item dialog is open. Image files pasted from
+      // screenshots or a copied image are compressed exactly like uploads.
+      pasteListener ??=html.document.onPaste.listen((event){
+        final files=event.clipboardData?.files;
+        if(files==null||files.isEmpty)return;
+        html.File? pasted;
+        for(final file in files){
+          if(file.type.startsWith('image/')){pasted=file;break;}
+        }
+        if(pasted==null)return;
+        event.preventDefault();
+        () async{
+          try{
+            final result=await compressThumbnail(pasted!);
+            if(dialogOpen&&ctx.mounted)refresh(()=>photo=result);
+          }catch(e){
+            if(dialogOpen&&ctx.mounted){
+              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content:Text('Unable to paste picture: $e')));
+            }
+          }
+        }();
+      });
+      return AlertDialog(
       title:Text(existing==null?'Add grocery item':'Edit grocery item'),
       content:SizedBox(width:400,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         Row(children:[
@@ -183,6 +211,7 @@ class _GroceriesPageState extends State<GroceriesPage> {
                 if(ctx.mounted)ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content:Text('Could not use picture: $e')));
               }
             }),
+            const Text('Or paste an image (Ctrl+V / Cmd+V)',style:TextStyle(fontSize:12,color:Color(0xFF65758A))),
             if(photo!=null)TextButton(onPressed:()=>refresh(()=>photo=null),child:const Text('Remove picture')),
           ])),
         ]),
@@ -212,7 +241,9 @@ class _GroceriesPageState extends State<GroceriesPage> {
         TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancel')),
         FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Save')),
       ],
-    )));
+    );}));
+    dialogOpen=false;
+    await pasteListener?.cancel();
     if(save!=true)return;
     final p=double.tryParse(price.text.trim()),q=double.tryParse(quantity.text.trim());
     if(name.text.trim().isEmpty||p==null||!p.isFinite||p<0||q==null||!q.isFinite||q<=0){
