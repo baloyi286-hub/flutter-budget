@@ -26,27 +26,91 @@ class BudgetService extends ChangeNotifier {
   DateTime _stamp(BudgetItem i)=>i.updatedAt??DateTime.fromMillisecondsSinceEpoch(0,isUtc:true);
 
   Future<void> initialize() async{
-    _cycleMonth=_cycleFor(DateTime.now());final current=_key(_cycleMonth),stored=await _repository.loadCycleKey();
-    _items=await _repository.loadItems()??<BudgetItem>[];_history=await _repository.loadHistory();
-    if(stored!=null&&stored!=current){
-      await _syncCycle(stored);
-      await _archive(stored,_items);
-      final now=DateTime.now().toUtc();
-      _items=_items.where((e)=>!e.deleted).map((e)=>e.copyWith(paid:false,updatedAt:now)).toList();
-      await _saveLocal();
-      if(cloudEnabled){
-        await cloud!.upsertItems(current,_items);
-        for(final i in _items){await cloud!.logEvent(current,i.id,'ROLLED OVER',details:_details(i));}
-      }
+    final target=_cycleFor(DateTime.now());
+    final stored=await _repository.loadCycleKey();
+    _items=await _repository.loadItems()??<BudgetItem>[];
+    _history=await _repository.loadHistory();
+    _cycleMonth=stored==null?target:DateTime.tryParse('$stored-01')??target;
+    if(_key(_cycleMonth)!=_key(target)){
+      await _prepareCycle(target,stored:stored);
+    }else if(stored==null&&cloudEnabled){
+      await _prepareCycle(target,stored:stored);
     }
-    await _saveLocal();await syncNow();
+    await _saveLocal();
+    await syncNow();
     _syncTimer=Timer.periodic(const Duration(seconds:20),(_)=>syncNow());
     notifyListeners();
   }
 
+  // Prefer an existing current cloud cycle over an older device cache.
+  // Otherwise restore from the latest cloud month, never resurrecting deleted items.
+  Future<void> _prepareCycle(DateTime target,{String? stored}) async{
+    final targetKey=_key(target);
+    if(cloudEnabled){
+      try{
+        final existing=await cloud!.loadMonth(targetKey);
+        if(existing!=null&&existing.isNotEmpty){
+          _cycleMonth=target;
+          _items=existing;
+          await _saveLocal();
+          return;
+        }
+      }catch(_){_online=false;}
+    }
+
+    String? sourceKey=stored;
+    if(cloudEnabled){
+      for(var monthsBack=1;monthsBack<=24;monthsBack++){
+        final previous=DateTime(target.year,target.month-monthsBack);
+        final key=_key(previous);
+        try{
+          final rows=await cloud!.loadMonth(key);
+          if(rows!=null&&rows.isNotEmpty){
+            if(key==stored&&_items.isNotEmpty){
+              await _syncCycle(key);
+            }else{
+              _items=rows;
+            }
+            sourceKey=key;
+            break;
+          }
+        }catch(_){_online=false;break;}
+      }
+    }
+
+    if(sourceKey!=null&&sourceKey!=targetKey&&_items.isNotEmpty){
+      // Only archive the actual recorded month; do not invent missing-month activity.
+      await _archive(sourceKey,_items);
+    }
+    _cycleMonth=target;
+    final now=DateTime.now().toUtc();
+    _items=_items.where((item)=>!item.deleted)
+      .map((item)=>item.copyWith(paid:false,updatedAt:now)).toList();
+    await _saveLocal();
+    if(cloudEnabled){
+      try{
+        // Another device might have created this cycle while we were recovering.
+        final existing=await cloud!.loadMonth(targetKey);
+        if(existing!=null&&existing.isNotEmpty){
+          _items=existing;
+        }else{
+          await cloud!.upsertItems(targetKey,_items);
+          for(final item in _items){
+            await cloud!.logEvent(targetKey,item.id,'ROLLED OVER',details:_details(item));
+          }
+        }
+        _online=true;
+        await _saveLocal();
+      }catch(_){_online=false;}
+    }
+  }
+
   Future<void> syncNow() async{
-    if(!cloudEnabled||_syncing)return;_syncing=true;
+    if(_syncing)return;_syncing=true;
     try{
+      final target=_cycleFor(DateTime.now());
+      if(_key(_cycleMonth)!=_key(target))await _prepareCycle(target,stored:_key(_cycleMonth));
+      if(!cloudEnabled)return;
       final cycle=_key(_cycleMonth);final remote=await cloud!.loadMonth(cycle);
       if(remote==null){await cloud!.upsertItems(cycle,_items);}
       else{
