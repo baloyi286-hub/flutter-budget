@@ -1,6 +1,8 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:html' as html;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,12 +11,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 const groceryCategories=['Fruit & Vegetables','Meat & Poultry','Dairy & Eggs','Bakery','Pantry','Frozen','Drinks','Snacks','Cleaning','Personal Care','Other'];
 
 class GroceryItem {
-  GroceryItem({required this.id,required this.name,required this.price,required this.quantity,required this.category,required this.note,required this.bought,required this.deleted,required this.updatedAt,this.shoppingDate});
+  GroceryItem({required this.id,required this.name,required this.price,required this.quantity,required this.category,required this.note,required this.bought,required this.deleted,required this.updatedAt,this.shoppingDate,this.thumbnailData});
   final String id,name,category,note;
   final double price,quantity;
   final bool bought,deleted;
   final DateTime updatedAt;
   final DateTime? shoppingDate;
+  final String? thumbnailData;
   double get total=>price*quantity;
   factory GroceryItem.fromJson(Map<String,dynamic> m)=>GroceryItem(
     id:m['id'].toString(),name:m['name'] as String? ?? '',price:(m['amount'] as num?)?.toDouble()??0,
@@ -22,17 +25,20 @@ class GroceryItem {
     note:m['note'] as String? ?? '',bought:m['purchased'] as bool? ??false,deleted:m['deleted'] as bool? ??false,
     updatedAt:DateTime.tryParse(m['updated_at']?.toString()??'')?.toUtc()??DateTime.fromMillisecondsSinceEpoch(0,isUtc:true),
     shoppingDate:DateTime.tryParse(m['shopping_date']?.toString()??''),
+    thumbnailData:m['thumbnail_data'] as String?,
   );
   Map<String,dynamic> toJson()=>{
     'id':id,'name':name,'amount':price,'quantity':quantity,'category':category,
     'note':note,'purchased':bought,'deleted':deleted,
     'updated_at':updatedAt.toUtc().toIso8601String(),
     'shopping_date':shoppingDate==null?null:DateFormat('yyyy-MM-dd').format(shoppingDate!),
+    'thumbnail_data':thumbnailData,
   };
-  GroceryItem edit({String? name,double? price,double? quantity,String? category,String? note,bool? bought,bool? deleted,DateTime? shoppingDate,bool clearDate=false})=>
+  GroceryItem edit({String? name,double? price,double? quantity,String? category,String? note,bool? bought,bool? deleted,DateTime? shoppingDate,bool clearDate=false,String? thumbnailData,bool clearThumbnail=false})=>
     GroceryItem(id:id,name:name??this.name,price:price??this.price,quantity:quantity??this.quantity,
       category:category??this.category,note:note??this.note,bought:bought??this.bought,deleted:deleted??this.deleted,
-      updatedAt:DateTime.now().toUtc(),shoppingDate:clearDate?null:shoppingDate??this.shoppingDate);
+      updatedAt:DateTime.now().toUtc(),shoppingDate:clearDate?null:shoppingDate??this.shoppingDate,
+      thumbnailData:clearThumbnail?null:thumbnailData??this.thumbnailData);
 }
 
 class GroceriesPage extends StatefulWidget {
@@ -105,6 +111,54 @@ class _GroceriesPageState extends State<GroceriesPage> {
     if(mounted)setState((){});
   }
 
+  // Store a small JPEG thumbnail in the grocery_items row, not the original camera photo.
+  Future<String?> pickThumbnail() async{
+    final picker=html.FileUploadInputElement()..accept='image/*';
+    picker.click();
+    await picker.onChange.first;
+    if(picker.files==null||picker.files!.isEmpty)return null;
+    final file=picker.files!.first;
+    if(!file.type.startsWith('image/'))throw const FormatException('Choose an image file.');
+    final reader=html.FileReader();
+    reader.readAsDataUrl(file);
+    await reader.onLoad.first;
+    final data=reader.result as String;
+    final image=html.ImageElement(src:data);
+    await Future.any([
+      image.onLoad.first,
+      image.onError.first.then((_)=>throw const FormatException('Cannot open this picture. Please try JPEG or PNG.')),
+    ]).timeout(const Duration(seconds:20));
+    final width=image.naturalWidth;
+    final height=image.naturalHeight;
+    if(width==0||height==0)throw const FormatException('Picture has invalid dimensions.');
+    const longest=320;
+    final ratio=math.min(1.0,longest/math.max(width,height));
+    final w=math.max(1,(width*ratio).round());
+    final h=math.max(1,(height*ratio).round());
+    final canvas=html.CanvasElement(width:w,height:h);
+    canvas.context2D
+      ..fillStyle='#FFFFFF'
+      ..fillRect(0,0,w,h)
+      ..drawImageScaled(image,0,0,w.toDouble(),h.toDouble());
+    var result=canvas.toDataUrl('image/jpeg',0.7);
+    if(result.length>100000)result=canvas.toDataUrl('image/jpeg',0.48);
+    if(result.length>100000)throw const FormatException('Picture is too large after compression.');
+    return result;
+  }
+
+  Widget thumbnail(String? data,{double size=56}){
+    if(data==null||data.isEmpty)return Container(
+      width:size,height:size,
+      decoration:BoxDecoration(color:const Color(0xFFE9EEF4),borderRadius:BorderRadius.circular(8)),
+      child:const Icon(Icons.image_outlined,color:Color(0xFF8391A5)),
+    );
+    try{
+      return ClipRRect(borderRadius:BorderRadius.circular(8),
+        child:Image.memory(base64Decode(data.split(',').last),
+          width:size,height:size,fit:BoxFit.cover,
+          errorBuilder:(_,__,___)=>const Icon(Icons.broken_image_outlined)));
+    }catch(_){return SizedBox(width:size,height:size,child:const Icon(Icons.broken_image_outlined));}
+  }
   Future<void> editItem([GroceryItem? existing]) async{
     final name=TextEditingController(text:existing?.name??'');
     final price=TextEditingController(text:existing==null?'':existing.price.toStringAsFixed(2));
@@ -113,9 +167,26 @@ class _GroceriesPageState extends State<GroceriesPage> {
     String category=existing?.category??'Other';
     if(!groceryCategories.contains(category))category='Other';
     DateTime? date=existing?.shoppingDate;
+    String? photo=existing?.thumbnailData;
     final save=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:Text(existing==null?'Add grocery item':'Edit grocery item'),
       content:SizedBox(width:400,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        Row(children:[
+          thumbnail(photo,size:74),
+          const SizedBox(width:12),
+          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            TextButton.icon(icon:const Icon(Icons.add_a_photo_outlined),label:Text(photo==null?'Add picture':'Change picture'),onPressed:() async{
+              try{
+                final selected=await pickThumbnail();
+                if(selected!=null)refresh(()=>photo=selected);
+              }catch(e){
+                if(ctx.mounted)ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content:Text('Could not use picture: $e')));
+              }
+            }),
+            if(photo!=null)TextButton(onPressed:()=>refresh(()=>photo=null),child:const Text('Remove picture')),
+          ])),
+        ]),
+        const SizedBox(height:10),
         TextField(controller:name,decoration:const InputDecoration(labelText:'Item name')),
         const SizedBox(height:10),
         TextField(controller:price,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Unit price (R)')),
@@ -149,8 +220,8 @@ class _GroceriesPageState extends State<GroceriesPage> {
       return;
     }
     final item=existing==null
-      ?GroceryItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name.text.trim(),price:p,quantity:q,category:category,note:note.text.trim(),bought:false,deleted:false,updatedAt:DateTime.now().toUtc(),shoppingDate:date)
-      :existing.edit(name:name.text.trim(),price:p,quantity:q,category:category,note:note.text.trim(),shoppingDate:date,clearDate:date==null);
+      ?GroceryItem(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name.text.trim(),price:p,quantity:q,category:category,note:note.text.trim(),bought:false,deleted:false,updatedAt:DateTime.now().toUtc(),shoppingDate:date,thumbnailData:photo)
+      :existing.edit(name:name.text.trim(),price:p,quantity:q,category:category,note:note.text.trim(),shoppingDate:date,clearDate:date==null,thumbnailData:photo,clearThumbnail:photo==null);
     await update(item);
   }
 
@@ -158,6 +229,8 @@ class _GroceriesPageState extends State<GroceriesPage> {
     padding:const EdgeInsets.symmetric(horizontal:6,vertical:5),
     child:Row(children:[
       Checkbox(activeColor:Colors.green,value:item.bought,onChanged:(v)=>update(item.edit(bought:v??false))),
+      thumbnail(item.thumbnailData,size:52),
+      const SizedBox(width:9),
       Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text(item.name,style:TextStyle(fontWeight:FontWeight.w600,decoration:item.bought?TextDecoration.lineThrough:null)),
         Text('Qty '+item.quantity.toString()+' × '+money.format(item.price)+
