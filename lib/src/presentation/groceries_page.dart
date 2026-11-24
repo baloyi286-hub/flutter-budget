@@ -51,6 +51,12 @@ class _GroceriesPageState extends State<GroceriesPage> {
   final money=NumberFormat.currency(locale:'en_ZA',symbol:'R',decimalDigits:2);
   List<GroceryItem> items=[];
   Timer? timer;
+  Timer? searchDebounce;
+  final searchController=TextEditingController();
+  List<Map<String,dynamic>> sharedResults=[];
+  bool searching=false;
+  String searchQuery='';
+  int searchVersion=0;
   bool loading=true,syncing=false,online=true;
   String get uid=>client.auth.currentUser?.id??'';
   String get localKey=>'groceries_v1_'+uid;
@@ -60,7 +66,72 @@ class _GroceriesPageState extends State<GroceriesPage> {
     initialize();
     timer=Timer.periodic(const Duration(seconds:30),(_)=>sync());
   }
-  @override void dispose(){timer?.cancel();super.dispose();}
+  @override void dispose(){
+    timer?.cancel();
+    searchDebounce?.cancel();
+    searchController.dispose();
+    super.dispose();
+  }
+
+  void onSearch(String query){
+    searchDebounce?.cancel();
+    searchQuery=query.trim();
+    final version=++searchVersion;
+    if(searchQuery.isEmpty){
+      if(mounted)setState((){sharedResults=[];searching=false;});
+      return;
+    }
+    if(mounted)setState(()=>searching=true);
+    searchDebounce=Timer(const Duration(milliseconds:350),() async{
+      try{
+        final safe=searchQuery.replaceAll('%','').replaceAll('_','').replaceAll('\\','');
+        if(safe.isEmpty){if(mounted)setState(()=>searching=false);return;}
+        final rows=await client.from('grocery_catalog')
+          .select('id,name,amount,quantity,category,thumbnail_data')
+          .ilike('name','%$safe%').order('name').limit(40);
+        if(version==searchVersion&&mounted){
+          setState((){
+            sharedResults=(rows as List).map((row)=>Map<String,dynamic>.from(row as Map)).toList();
+            searching=false;
+          });
+        }
+      }catch(_){
+        if(version==searchVersion&&mounted){
+          setState((){sharedResults=[];searching=false;});
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content:Text('Could not search shared groceries. Check your connection.')));
+        }
+      }
+    });
+  }
+
+  Future<void> publishToCatalog(GroceryItem item) async{
+    if(uid.isEmpty||item.deleted)return;
+    // Share only product data; personal notes, shopping date and purchased status
+    // remain on the user's own shopping list.
+    await client.from('grocery_catalog').upsert({
+      'source_user_id':uid,'source_item_id':item.id,
+      'name':item.name,'amount':item.price,'quantity':item.quantity,
+      'category':item.category,'thumbnail_data':item.thumbnailData,
+      'updated_at':item.updatedAt.toUtc().toIso8601String(),
+    },onConflict:'source_user_id,source_item_id');
+  }
+
+  Future<void> addSharedProduct(Map<String,dynamic> product) async{
+    final item=GroceryItem(
+      id:DateTime.now().microsecondsSinceEpoch.toString(),
+      name:product['name'] as String? ?? 'Grocery item',
+      price:(product['amount'] as num?)?.toDouble()??0,
+      quantity:(product['quantity'] as num?)?.toDouble()??1,
+      category:product['category'] as String? ?? 'Other',
+      note:'',bought:false,deleted:false,
+      updatedAt:DateTime.now().toUtc(),
+      thumbnailData:product['thumbnail_data'] as String?,
+    );
+    await update(item);
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content:Text('${item.name} added to your groceries.')));
+  }
 
   Future<void> initialize() async{
     try{
@@ -92,7 +163,22 @@ class _GroceriesPageState extends State<GroceriesPage> {
         final r=cloud[i.id];
         if(r==null||i.updatedAt.isAfter(r.updatedAt))pending.add({...i.toJson(),'user_id':uid});
       }
-      if(pending.isNotEmpty)await client.from('grocery_items').upsert(pending,onConflict:'user_id,id');
+      if(pending.isNotEmpty){
+        await client.from('grocery_items').upsert(pending,onConflict:'user_id,id');
+        for(final payload in pending){
+          if(payload['deleted']==false){
+            try{
+              await client.from('grocery_catalog').upsert({
+                'source_user_id':uid,'source_item_id':payload['id'],
+                'name':payload['name'],'amount':payload['amount'],
+                'quantity':payload['quantity'],'category':payload['category'],
+                'thumbnail_data':payload['thumbnail_data'],
+                'updated_at':payload['updated_at'],
+              },onConflict:'source_user_id,source_item_id');
+            }catch(_){}
+          }
+        }
+      }
       items=merged.values.toList();
       await saveLocal();
       online=true;
@@ -106,6 +192,8 @@ class _GroceriesPageState extends State<GroceriesPage> {
     await saveLocal();
     try{
       await client.from('grocery_items').upsert({...item.toJson(),'user_id':uid},onConflict:'user_id,id');
+      // Deleting an item does not remove it from the shared catalogue.
+      if(!item.deleted)await publishToCatalog(item);
       online=true;
     }catch(_){online=false;}
     if(mounted)setState((){});
@@ -277,7 +365,11 @@ class _GroceriesPageState extends State<GroceriesPage> {
   );
 
   @override Widget build(BuildContext context){
-    final active=items.where((i)=>!i.deleted).toList();
+    final active=items.where((i)=>!i.deleted&&(
+      searchQuery.isEmpty||
+      i.name.toLowerCase().contains(searchQuery.toLowerCase())||
+      i.category.toLowerCase().contains(searchQuery.toLowerCase())
+    )).toList();
     active.sort((a,b)=>a.bought!=b.bought?(a.bought?1:-1):a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     final groups=<String,List<GroceryItem>>{};
     for(final item in active){groups.putIfAbsent(item.category,()=>[]).add(item);}
@@ -300,6 +392,50 @@ class _GroceriesPageState extends State<GroceriesPage> {
                 Text('Purchased: '+money.format(bought)+' • Remaining: '+money.format(total-bought),style:const TextStyle(color:Colors.white)),
               ]),
             ),
+            const SizedBox(height:16),
+            TextField(
+              controller:searchController,
+              onChanged:onSearch,
+              decoration:InputDecoration(
+                labelText:'Search groceries',
+                hintText:'Search your list and products shared by users',
+                prefixIcon:const Icon(Icons.search),
+                suffixIcon:searchQuery.isEmpty?null:IconButton(
+                  tooltip:'Clear search',icon:const Icon(Icons.close),
+                  onPressed:(){searchController.clear();onSearch('');}),
+              ),
+            ),
+            const SizedBox(height:6),
+            const Padding(
+              padding:EdgeInsets.symmetric(horizontal:4),
+              child:Text('Product name, price, quantity, category and picture are shared across accounts. Notes and shopping dates stay private.',
+                style:TextStyle(color:Color(0xFF65758A),fontSize:12)),
+            ),
+            if(searchQuery.isNotEmpty)...[
+              const SizedBox(height:12),
+              Text('SHARED PRODUCTS',style:Theme.of(context).textTheme.titleMedium),
+              if(searching)const LinearProgressIndicator(),
+              if(!searching&&sharedResults.isEmpty)
+                const Padding(padding:EdgeInsets.all(12),child:Text('No matching products found in the shared catalogue.')),
+              for(final product in sharedResults)
+                Card(margin:const EdgeInsets.only(top:8),child:Padding(
+                  padding:const EdgeInsets.symmetric(horizontal:10,vertical:8),
+                  child:Row(children:[
+                    thumbnail(product['thumbnail_data'] as String?,size:54),
+                    const SizedBox(width:10),
+                    Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                      Text(product['name'] as String? ?? '',style:const TextStyle(fontWeight:FontWeight.w700)),
+                      Text('${product['category']??'Other'} • Qty ${product['quantity']??1} • ${money.format((product['amount'] as num?)?.toDouble()??0)}',
+                        style:const TextStyle(fontSize:12,color:Color(0xFF65758A))),
+                    ])),
+                    IconButton(tooltip:'Add to my grocery list',
+                      icon:const Icon(Icons.add_circle_outline,color:Color(0xFF1976D2)),
+                      onPressed:()=>addSharedProduct(product)),
+                  ]),
+                )),
+              const SizedBox(height:14),
+              Text('MY LIST',style:Theme.of(context).textTheme.titleMedium),
+            ],
             if(!online)const Padding(padding:EdgeInsets.all(12),child:Text('Offline: changes are saved on this device and will sync later.',style:TextStyle(color:Colors.deepOrange))),
             if(loading)const Center(child:CircularProgressIndicator()),
             if(active.isEmpty&&!loading)const Padding(padding:EdgeInsets.all(32),child:Center(child:Text('No groceries yet. Tap + to add an item.'))),
