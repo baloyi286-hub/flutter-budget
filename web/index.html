@@ -13,6 +13,52 @@
   <title>Budget</title>
 </head>
 <body>
+  <script>
+    // Browser-side Web Push bridge for Flutter web. VAPID PUBLIC key is passed
+    // from Dart; the server's signing key stays protected in Supabase.
+    window.budgetPush = {
+      async subscribe(publicKey) {
+        if (!window.isSecureContext || !('serviceWorker' in navigator) ||
+            !('PushManager' in window) || !('Notification' in window)) {
+          throw new Error('Background push requires an installed, supported PWA. On iPhone, add Budget to the Home Screen and launch it from its icon.');
+        }
+        // This is called directly from a button/switch tap on iOS.
+        if (Notification.permission !== 'granted') {
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') throw new Error('Allow Budget notifications in iPhone Settings.');
+        }
+        const worker = await navigator.serviceWorker.register('/push-sw.js', {scope: '/'});
+        const registration = await navigator.serviceWorker.ready;
+        let sub = await registration.pushManager.getSubscription();
+        if (!sub) {
+          const raw = publicKey.replace(/-/g, '+').replace(/_/g, '/');
+          const binary = atob(raw.padEnd(Math.ceil(raw.length / 4) * 4, '='));
+          const key = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+          sub = await registration.pushManager.subscribe({
+            userVisibleOnly: true, applicationServerKey: key,
+          });
+        }
+        return JSON.stringify(sub.toJSON());
+      },
+      async existing() {
+        if (!('serviceWorker' in navigator)) return null;
+        const registration = await navigator.serviceWorker.getRegistration('/');
+        if (!registration) return null;
+        const sub = await registration.pushManager.getSubscription();
+        return sub ? JSON.stringify(sub.toJSON()) : null;
+      },
+      async unsubscribe() {
+        if (!('serviceWorker' in navigator)) return null;
+        const registration = await navigator.serviceWorker.getRegistration('/');
+        if (!registration) return null;
+        const sub = await registration.pushManager.getSubscription();
+        if (!sub) return null;
+        const endpoint = sub.endpoint;
+        await sub.unsubscribe();
+        return endpoint;
+      },
+    };
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
