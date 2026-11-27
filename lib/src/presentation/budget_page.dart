@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/budget_item.dart';
 import '../domain/budget_service.dart';
 import 'groceries_page.dart';
+import '../data/budget_push_notifications.dart';
 
 const _blue = Color(0xFF1976D2);
 const _deepBlue = Color(0xFF145FA8);
@@ -21,7 +22,14 @@ class BudgetPage extends StatefulWidget {
 class _BudgetPageState extends State<BudgetPage> {
   final _money = NumberFormat.currency(locale:'en_ZA',symbol:'R',decimalDigits:0);
   int _tab=0;
-  @override void initState(){super.initState();widget.service.addListener(_refresh);WidgetsBinding.instance.addPostFrameCallback((_)=>_checkReminders());}
+  @override void initState(){
+    super.initState();
+    widget.service.addListener(_refresh);
+    WidgetsBinding.instance.addPostFrameCallback((_) async{
+      try{await BudgetPushNotifications.restoreExisting();}catch(_){}
+      await _checkReminders();
+    });
+  }
   @override void dispose(){widget.service.removeListener(_refresh);super.dispose();}
   void _refresh()=>setState((){});
 
@@ -107,6 +115,7 @@ class _BudgetPageState extends State<BudgetPage> {
     ));
     if(confirmed!=true)return;
     await widget.service.syncNow();
+    await BudgetPushNotifications.removeOnSignOut();
     await Supabase.instance.client.auth.signOut();
     widget.onSignedOut();
   }
@@ -141,11 +150,15 @@ class _BudgetPageState extends State<BudgetPage> {
             subtitle:const Text('Notify me before this payment goes off'),
             value:reminderEnabled,
             onChanged:(v) async{
-              if(v&&html.Notification.permission!='granted'){
-                final permission=await html.Notification.requestPermission();
-                if(permission!='granted')return;
+              if(v){
+                try{
+                  await BudgetPushNotifications.enable();
+                }catch(e){
+                  if(mounted)ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(content:Text('Background notifications not enabled: $e')));
+                }
               }
-              setDialogState(()=>reminderEnabled=v);
+              if(context.mounted)setDialogState(()=>reminderEnabled=v);
             },
           ),
           if(reminderEnabled)DropdownButtonFormField<int>(
@@ -174,29 +187,24 @@ class _BudgetPageState extends State<BudgetPage> {
       return;
     }
     if(item==null){await widget.service.addItem(name.text.trim(),value,note.text.trim(),category,monthDay,reminderEnabled,reminderDaysBefore);}
-    else{await widget.service.editItem(item,name.text.trim(),value,note.text.trim(),category,monthDay,category.needsDay&&reminderEnabled,reminderDaysBefore);}
+    else{await widget.service.editItem(item,name.text.trim(),value,note.text.trim(),category,monthDay,reminderEnabled,reminderDaysBefore);}
     await _checkReminders();
   }
 
   Future<void> _testNotification() async{
     try{
-      var permission=html.Notification.permission;
-      if(permission!='granted'){
-        permission=await html.Notification.requestPermission();
-      }
-      if(!mounted)return;
-      if(permission!='granted'){
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Notifications are not allowed on this device (permission: $permission). On iPhone, background alerts require Web Push.')));
-        return;
-      }
-      html.Notification('Budget notification test',body:'Your budget app can display browser notifications on this device.');
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Test notification requested. Check your device notifications.')));
-    }catch(_){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Browser notifications are unavailable here. iPhone requires a Home Screen app and Web Push implementation.')));
+      final sent=await BudgetPushNotifications.sendTest();
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content:Text('Background Web Push test sent to $sent device(s). You can close the app for future payment reminders.')));
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content:Text('Background push setup failed: $e. On iPhone open the installed Home Screen app and allow notifications.'),duration:const Duration(seconds:9)));
     }
   }
 
   Future<void> _checkReminders() async{
+    // The server is responsible for subscribed devices; avoid duplicate alerts.
+    if(await BudgetPushNotifications.hasExisting)return;
     if(html.Notification.permission!='granted')return;
     final now=DateTime.now();
     final today=DateTime(now.year,now.month,now.day);
