@@ -7,6 +7,10 @@ on:
       - 'build/web/**'
   workflow_dispatch:
 
+concurrency:
+  group: flutter-budget-web-main
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
